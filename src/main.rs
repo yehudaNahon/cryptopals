@@ -1,6 +1,57 @@
 use hex;
+use std::str;
+
+fn decrypt_single_byte_xor(cipher: &[u8], exp_result: String) -> Result<u8, &'static str> {
+    for key in 0..255 {
+        let xored_buff = cipher.iter().map(|byte| byte ^ key).collect::<Vec<u8>>();
+        let result = match str::from_utf8(&xored_buff) {
+            Ok(result) => result,
+            Err(_) => continue,
+        };
+        if result == exp_result {
+            println!("the key is: {}", key);
+            return Ok(key);
+        }
+    }
+
+    Err("no key matched the exp output")
+}
+
+fn xor_buffs(buff1: &[u8], buff2: &[u8]) -> Vec<u8> {
+    buff1
+        .iter()
+        .zip(buff2.iter())
+        .map(|(byte1, byte2)| byte1 ^ byte2)
+        .collect()
+}
 
 fn main() {
 }
 
 
+#[test]
+fn test_single_key_xor() {
+    let exp_result = "Cooking MC's like a pound of bacon".to_string();
+    let cipher =
+        hex::decode("1b37373331363f78151b7f2b783431333d78397828372d363c78373e783a393b3736")
+            .expect("failed parsing hex string");
+    assert_eq!(decrypt_single_byte_xor(&cipher, exp_result), Ok(88));
+}
+
+#[test]
+fn test_xor_between_buffers() {
+    let buff1 = hex::decode("1c0111001f010100061a024b53535009181c").expect("failed parsing");
+    let buff2 = hex::decode("686974207468652062756c6c277320657965").expect("failed parsing");
+    assert_eq!(
+        hex::encode(xor_buffs(&buff1, &buff2)),
+        "746865206b696420646f6e277420706c6179"
+    );
+}
+#[test]
+fn test_hex_to_base64() {
+    let hex = hex::decode("49276d206b696c6c696e6720796f757220627261696e206c696b65206120706f69736f6e6f7573206d757368726f6f6d").expect("Failed parsing hex string");
+    assert_eq!(
+        base64::encode(hex),
+        "SSdtIGtpbGxpbmcgeW91ciBicmFpbiBsaWtlIGEgcG9pc29ub3VzIG11c2hyb29t"
+    );
+}
