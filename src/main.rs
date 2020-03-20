@@ -1,5 +1,9 @@
+#![allow(dead_code)]
+
 use hex;
 use std::str;
+use std::fs::{File};
+use std::io::{self, prelude::*, BufReader};
 
 fn decrypt_single_byte_xor(cipher: &[u8], exp_result: String) -> Result<u8, &'static str> {
     for key in 0..255 {
@@ -25,7 +29,16 @@ fn xor_buffs(buff1: &[u8], buff2: &[u8]) -> Vec<u8> {
         .collect()
 }
 
-fn main() {
+fn main() -> io::Result<()> {
+    let file = File::open("challenge4")?;
+    let reader = BufReader::new(file);
+
+    for line in reader.lines() {
+        
+        println!("{}", line?);
+    }
+
+    Ok(())
 }
 
 
