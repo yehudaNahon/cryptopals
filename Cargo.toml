@@ -1,11 +1,13 @@
 [package]
-name = "cryptopals"
-version = "0.1.0"
 authors = ["Yehuda Nahon <yehudanahon98@gmail.com>"]
 edition = "2018"
+name = "cryptopals"
+version = "0.1.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-base64 = "0.12"
+base64 = "0.13"
 hex = "0.4.2"
+named_tuple = "0.1.3"
+once_cell = "1.5.2"
