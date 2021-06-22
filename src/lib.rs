@@ -1,10 +1,67 @@
 #![allow(dead_code)]
 #![feature(toowned_clone_into)]
+#![feature(map_first_last)]
+#![feature(map_into_keys_values)]
 
 use once_cell::sync::Lazy;
-use std::{collections::HashSet, str};
+use std::str;
+use std::{
+    collections::{BTreeMap, HashMap, HashSet},
+    usize,
+};
 
-fn get_word_score(sentence: &str) -> i32 {
+fn letter_freq_score(sentence: &str) -> i64 {
+    // static LETTER_FREQ: Lazy<BTreeMap<char, f32>> = Lazy::new(|| include!("letter-freq.txt"));
+    let english_freq_order = "ETAOINSHRDLCUMWFGYPBVKJXQZ";
+
+    let mut letter_count = HashMap::new();
+    sentence
+        .to_uppercase()
+        .chars()
+        .filter(|ch| ch.is_ascii_alphabetic())
+        .for_each(|ch| *letter_count.entry(ch).or_insert(0) += 1);
+
+    // if no letter matches the requirments no need to continue
+    if letter_count.is_empty() {
+        return 0;
+    }
+
+    let mut count_vec: Vec<(_, _)> = letter_count.iter().collect();
+    count_vec.sort_by(|a, b| b.1.cmp(a.1));
+    let sentence_freq_order: String = count_vec.iter().map(|(ch, _)| **ch).collect();
+    // println!("{:?} :: {:?}", count_vec, sentence_freq_order);
+
+    let mut score: i64 = 0;
+    // let bounds = min(6, sentence_freq_order.len());
+    let bounds = 6;
+    for (english, sentence) in english_freq_order
+        .as_bytes()
+        .chunks(6)
+        .zip(sentence_freq_order.as_bytes().chunks(6))
+    {
+        for ch in sentence.iter() {
+            if english.contains(ch) {
+                score += 1;
+            }
+        }
+    }
+    // let english_top_6 = &english_freq_order[..bounds];
+    // let sentence_top_6 = &sentence_freq_order[..bounds];
+
+    // if score > 3 {
+    //     println!("{:?} :: {:?} -> {:?}", english_top_6, sentence_top_6, score);
+    // }
+
+    /*
+    decrease the score for none printable characters. this is to help score human readable text
+    above technectly valid english text but with un-readable characters
+    */
+    // score -= sentence.chars().filter(|ch| ch.is_ascii_control()).count() as i64;
+
+    score
+}
+
+fn score_word_match(sentence: &str) -> usize {
     static WORD_LIST: Lazy<HashSet<&'static str>> = Lazy::new(|| {
         include_str!("english-word-list.txt")
             .split_ascii_whitespace()
@@ -13,30 +70,40 @@ fn get_word_score(sentence: &str) -> i32 {
             .collect()
     });
 
-    let mut sum = 0;
-    for word in sentence.split_ascii_whitespace() {
-        if WORD_LIST.contains(word) {
-            sum += 1;
-        }
-    }
-    sum
+    sentence
+        .split_ascii_whitespace()
+        .filter(|word| WORD_LIST.contains(word))
+        .count()
 }
 
-fn decrypt_single_byte_xor(cipher: &[u8]) -> (String, i32) {
-    let mut best_line = String::from("");
-    let mut best_score = 0;
+fn xor_buffer(buff: &[u8], key: u8) -> Vec<u8> {
+    buff.iter().map(|b| b ^ key).collect()
+}
+
+fn break_single_byte_xor(cipher: &[u8]) -> BTreeMap<i64, Vec<String>> {
+    let mut options = BTreeMap::new();
 
     for key in 1..255 {
-        let tmp: Vec<u8> = cipher.iter().map(|b| b ^ key).collect();
-        let line = str::from_utf8(&tmp).unwrap_or("");
-        let score = get_word_score(line);
-        if score > best_score {
-            line.clone_into(&mut best_line);
-            best_score = score;
+        let tmp = xor_buffer(cipher, key);
+        if let Ok(l) = str::from_utf8(&tmp) {
+            options
+                .entry(letter_freq_score(l))
+                .or_insert(vec![l.to_owned()])
+                .push(l.to_owned());
         }
     }
 
-    (best_line, best_score)
+    options
+}
+
+fn find_xored_string(ciphers: Vec<Vec<u8>>) -> BTreeMap<i64, Vec<String>> {
+    let mut options = BTreeMap::new();
+
+    ciphers
+        .iter()
+        .for_each(|l| options.append(&mut break_single_byte_xor(&l)));
+
+    options
 }
 
 fn xor_buffs(buff1: &[u8], buff2: &[u8]) -> Vec<u8> {
@@ -54,6 +121,41 @@ fn repeating_key_xor(text: &[u8], key: &[u8]) -> Vec<u8> {
         .collect()
 }
 
+fn break_repeating_key_xor(cipher: &[u8]) {
+    let mut distances_map = BTreeMap::new();
+    for size in 2..40 {
+        if let Ok(distance) = hamming::distance_fast(&cipher[0..size], &cipher[size..size * 2]) {
+            distances_map.insert(distance / size as u64, size);
+        }
+    }
+
+    for _ in 0..4 {
+        if let Some((_distance, size)) = distances_map.pop_last() {
+            let mut blocks: Vec<Vec<u8>> = Vec::with_capacity(size);
+            for chunk in cipher.chunks(size) {
+                for (index, byte) in chunk.iter().enumerate() {
+                    blocks[index].push(*byte);
+                }
+            }
+
+            for block in blocks {
+                let (key, decypher) = break_single_byte_xor(&block).last_key_value().unwrap();
+            }
+        }
+    }
+}
+
+#[test]
+fn test_break_repeating_key_xor() {}
+
+#[test]
+fn test_hamming() {
+    assert_eq!(
+        hamming::distance_fast("this is a test".as_bytes(), "wokka wokka!!!".as_bytes()).unwrap(),
+        37
+    );
+}
+
 #[test]
 fn test_repeating_key_xor() {
     let sentence = "Burning 'em, if you ain't quick and nimble\nI go crazy when I hear a cymbal";
@@ -64,17 +166,16 @@ fn test_repeating_key_xor() {
 }
 
 #[test]
-fn find_xored_string() {
-    let mut best = (String::from(""), 0);
-    for cipher in include_str!("challenge1.4.txt").lines() {
-        let cipher = hex::decode(cipher).expect("failed parsing hex string");
-        let decrypted = decrypt_single_byte_xor(&cipher);
-        if decrypted.1 > best.1 {
-            best = decrypted;
-        }
-    }
+fn test_find_xored_string() {
+    let cipher = include_str!("challenge1.4.txt")
+        .lines()
+        .map(|l| hex::decode(l).expect("failed parsing hex string"))
+        .collect();
+    let result = find_xored_string(cipher);
+    // println!("{:?}", result);
+    let (_score, sentenses) = result.last_key_value().unwrap();
 
-    assert_eq!(best.0, String::from("Now that the party is jumping\n"));
+    assert!(sentenses.contains(&String::from("Now that the party is jumping\n")));
 }
 
 #[test]
@@ -82,10 +183,11 @@ fn test_single_key_xor() {
     let cipher =
         hex::decode("1b37373331363f78151b7f2b783431333d78397828372d363c78373e783a393b3736")
             .expect("failed parsing hex string");
-    assert_eq!(
-        decrypt_single_byte_xor(&cipher).0,
-        String::from("Cooking MC's like a pound of bacon")
-    );
+    let result = break_single_byte_xor(&cipher);
+    println!("{:?}", result);
+    let (_score, sentenses) = result.last_key_value().unwrap();
+
+    assert!(sentenses.contains(&String::from("Cooking MC's like a pound of bacon")));
 }
 
 #[test]
